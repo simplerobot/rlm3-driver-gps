@@ -13,14 +13,34 @@ static bool SendAndVerify(const RLM3_GPS_MESSAGE* client_message, size_t timeout
 static void Log(const RLM3_GPS_MESSAGE* client_message);
 
 
+static volatile RLM3_Task g_client_task = NULL;
+static volatile RLM3_GPS_Error g_error = RLM3_GPS_ERROR_NONE;
+
+
 extern void RLM3_GPS_PulseCallback()
 {
-	LOG_ALWAYS("PULSE CALLBACK");
+	LOG_WARN("PULSE CALLBACK");
+}
+
+const char* ToString(RLM3_GPS_Error error)
+{
+	switch (error)
+	{
+	case RLM3_GPS_ERROR_NONE: return "NONE";
+	case RLM3_GPS_ERROR_INTERNAL: return "INTERNAL";
+	case RLM3_GPS_ERROR_BUFFER_FULL: return "BUFFER_FULL";
+	case RLM3_GPS_ERROR_CHECKSUM_FAIL: return "CHECKSUM_FAIL";
+	case RLM3_GPS_ERROR_CHANNEL_FAIL: return "CHANNEL_FAIL";
+	case RLM3_GPS_ERROR_PROTOCOL_FAIL: return "PROTOCOL_FAIL";
+	default: return "UNKNOWN";
+	}
 }
 
 extern void RLM3_GPS_ErrorCallback(RLM3_GPS_Error error)
 {
-	LOG_ALWAYS("ERROR CALLBACK %d", error);
+	LOG_WARN("ERROR CALLBACK %s", ToString(error));
+	g_error = error;
+	RLM3_GiveFromISR(g_client_task);
 }
 
 
@@ -70,23 +90,23 @@ TEST_CASE(RLM3_GPS_Run_HappyCase)
 	RLM3_GPS_SET_MESSAGE_PAYLOAD_SIZE(message1E);
 	message1E.message_type = RLM3_GPS_MESSAGE_TYPE_1E_CONFIGURE_BINARY_MEASUREMENT_DATA_OUTPUT;
 	message1E.output_rate = 0; // 1Hz
-	message1E.meas_time_enabling = 0; // 1; // Enable
-	message1E.raw_meas_enabling = 0; // 1; // Enable
-	message1E.sv_ch_status_enabling = 1; // Enable
+	message1E.meas_time_enabling = 0; // Disable
+	message1E.raw_meas_enabling = 0; // Disable
+	message1E.sv_ch_status_enabling = 0; // Disable
 	message1E.rcv_state_enabling = 1; // Enable
 	message1E.subframe_enabling = 0x01; // GPS
 	message1E.extended_raw_measurement_enabling = 1; // Enable
 	message1E.attributes = 0; // Update to SRAM
 	ASSERT(SendAndVerify((const RLM3_GPS_MESSAGE*)&message1E, 1000));
 
-	// TODO: Why are we not getting an ACK back?
-	ASSERT(SendAndVerify((const RLM3_GPS_MESSAGE*)&message1F, 1000000));
+	// For some reason, this first call fails immediately after the last call.
+	SendAndVerify((const RLM3_GPS_MESSAGE*)&message1F, 1000);
+	ASSERT(SendAndVerify((const RLM3_GPS_MESSAGE*)&message1F, 1000));
 
-	bool had_measurement_time = false;
-	bool had_raw_measurement = false;
-	bool had_channel_status = false;
+	bool had_receiver_state = false;
+	bool had_raw_measurement_data = false;
 	RLM3_Time start_time = RLM3_GetCurrentTime();
-	while (RLM3_GetCurrentTime() - start_time < 20000 && !(had_measurement_time && had_raw_measurement && had_channel_status))
+	while (RLM3_GetCurrentTime() - start_time < 20000 && !(had_receiver_state && had_raw_measurement_data))
 	{
 		const RLM3_GPS_MESSAGE* server_message = RLM3_GPS_GetNextMessage(10);
 		if (server_message == nullptr)
@@ -94,19 +114,70 @@ TEST_CASE(RLM3_GPS_Run_HappyCase)
 
 		Log(server_message);
 
-		if (server_message->message_type == RLM3_GPS_MESSAGE_TYPE_DC_MEASUREMENT_TIME)
-			had_measurement_time = true;
+		if (server_message->message_type == RLM3_GPS_MESSAGE_TYPE_DF_RECEIVER_STATE)
+			had_receiver_state = true;
 
-		if (server_message->message_type == RLM3_GPS_MESSAGE_TYPE_DD_RAW_MEASUREMENT)
-			had_raw_measurement = true;
-
-		if (server_message->message_type == RLM3_GPS_MESSAGE_TYPE_DE_SV_CH_STATUS)
-			had_channel_status = true;
+		if (server_message->message_type == RLM3_GPS_MESSAGE_TYPE_E5_EXTENDED_RAW_MEASUREMENT_DATA)
+			had_raw_measurement_data = true;
 	}
 
-	ASSERT(had_measurement_time && had_raw_measurement && had_channel_status);
+	ASSERT(had_receiver_state && had_raw_measurement_data);
 
 	RLM3_GPS_Deinit();
+}
+
+TEST_CASE(RLM3_GPS_ForceOverflow)
+{
+	RLM3_GPS_Init();
+
+	// Configure the GPS Module to send us data.
+
+	RLM3_GPS_MESSAGE_09_CONFIGURE_OUTPUT_MESSAGE_FORMAT message09;
+	RLM3_GPS_SET_MESSAGE_PAYLOAD_SIZE(message09);
+	message09.message_type = RLM3_GPS_MESSAGE_TYPE_09_CONFIGURE_OUTPUT_MESSAGE_FORMAT;
+	message09.type = 2; // Binary message
+	message09.attributes = 0; // Update to SRAM
+	ASSERT(SendAndVerify((const RLM3_GPS_MESSAGE*)&message09, 1000));
+
+	RLM3_GPS_MESSAGE_1E_CONFIGURE_BINARY_MEASUREMENT_DATA_OUTPUT message1E;
+	RLM3_GPS_SET_MESSAGE_PAYLOAD_SIZE(message1E);
+	message1E.message_type = RLM3_GPS_MESSAGE_TYPE_1E_CONFIGURE_BINARY_MEASUREMENT_DATA_OUTPUT;
+	message1E.output_rate = 0; // 1Hz
+	message1E.meas_time_enabling = 0; // Disable
+	message1E.raw_meas_enabling = 0; // Disable
+	message1E.sv_ch_status_enabling = 0; // Disable
+	message1E.rcv_state_enabling = 1; // Enable
+	message1E.subframe_enabling = 0x01; // GPS
+	message1E.extended_raw_measurement_enabling = 1; // Enable
+	message1E.attributes = 0; // Update to SRAM
+	ASSERT(SendAndVerify((const RLM3_GPS_MESSAGE*)&message1E, 1000));
+
+	// Wait until the buffer is full.
+
+	g_client_task = RLM3_GetCurrentTask();
+	g_error = RLM3_GPS_ERROR_NONE;
+
+	while (g_error == RLM3_GPS_ERROR_NONE)
+		RLM3_Take();
+
+	g_client_task = nullptr;
+	ASSERT(g_error == RLM3_GPS_ERROR_BUFFER_FULL);
+
+	// Drop some messages just to be thorough.
+	RLM3_Delay(2000);
+
+	// Read all the messages currently in the buffer.
+	const RLM3_GPS_MESSAGE* server_message = RLM3_GPS_GetNextMessage(0);
+	while (server_message != nullptr)
+	{
+		Log(server_message);
+		server_message = RLM3_GPS_GetNextMessage(0);
+	}
+
+	// Make sure the buffer is filling correctly after overflowing.
+	server_message = RLM3_GPS_GetNextMessage(2000);
+	ASSERT(server_message != nullptr);
+	Log(server_message);
 }
 
 static bool SendAndVerify(const RLM3_GPS_MESSAGE* client_message, size_t timeout_ms)
@@ -222,7 +293,8 @@ static void Log(const RLM3_GPS_MESSAGE* message)
 		const char* sv_ch_status_enabling = k_enables[std::min<uint8_t>(2, m->sv_ch_status_enabling)];
 		const char* rcv_state_enabling = k_enables[std::min<uint8_t>(2, m->rcv_state_enabling)];
 		const char* subframe_enabling = k_subframes[std::min<uint8_t>(2, m->subframe_enabling)];
-		LOG_ALWAYS("MESSAGE BINARY_MEASUREMENT_DATA_OUTPUT_STATUS { TYPE: 89, PAYLOAD_LENGTH: %d, RATE: %s, MEASURE: %s, RAW: %s, SV: %s, RCV: %s, SUBFRAMES: %s }", m->payload_length, rate, meas_time_enabling, raw_meas_enabling, sv_ch_status_enabling, rcv_state_enabling, subframe_enabling);
+		const char* extended_raw_measurement_enabling = k_enables[std::min<uint8_t>(2, m->extended_raw_measurement_enabling)];
+		LOG_ALWAYS("MESSAGE BINARY_MEASUREMENT_DATA_OUTPUT_STATUS { TYPE: 89, PAYLOAD_LENGTH: %d, RATE: %s, MEASURE: %s, RAW: %s, SV: %s, RCV: %s, SUBFRAMES: %s, ERAW: %s }", m->payload_length, rate, meas_time_enabling, raw_meas_enabling, sv_ch_status_enabling, rcv_state_enabling, subframe_enabling, extended_raw_measurement_enabling);
 	}
 	break;
 	case RLM3_GPS_MESSAGE_TYPE_90_GLONASS_EPHEMERIS_DATA: { auto m = (const RLM3_GPS_MESSAGE_90_GLONASS_EPHEMERIS_DATA*)message; LOG_ALWAYS("MESSAGE GLONASS_EPHEMERIS_DATA { TYPE: 90, PAYLOAD_LENGTH: %d }", m->payload_length); } break;

@@ -40,8 +40,8 @@ static const uint8_t SUFFIX_0 = 0x0D;
 static const uint8_t SUFFIX_1 = 0x0A;
 
 
-static uint8_t g_buffer[RLM3_GPS_BUFFER_SIZE] __attribute((aligned(4)));
-static RLM3_Task g_client_task = NULL;
+static volatile uint8_t g_buffer[RLM3_GPS_BUFFER_SIZE] __attribute((aligned(4)));
+static volatile RLM3_Task g_client_task = NULL;
 
 static volatile size_t g_server_cursor = 0;
 static volatile size_t g_server_end = 0;
@@ -50,12 +50,12 @@ static volatile size_t g_client_cursor = 0;
 static volatile size_t g_client_next = 0;
 
 static volatile State g_tx_state = STATE_IDLE;
-static const RLM3_GPS_MESSAGE* g_tx_message = NULL;
+static volatile const RLM3_GPS_MESSAGE* g_tx_message = NULL;
 static uint8_t g_tx_checksum = 0;
 static size_t g_tx_offset = 0;
 
 static volatile State g_rx_state = STATE_IDLE;
-static RLM3_GPS_MESSAGE* g_rx_message = NULL;
+static volatile RLM3_GPS_MESSAGE* g_rx_message = NULL;
 static size_t g_rx_payload_size = 0;
 static size_t g_rx_offset = 0;
 static uint8_t g_rx_checksum = 0;
@@ -300,7 +300,7 @@ extern void RLM3_UART2_ReceiveCallback(uint8_t data)
 	case STATE_CHECKSUM:
 		if (g_rx_checksum != data)
 		{
-			LOG_ERROR("Checksum Error %x vs %x", (int)g_rx_checksum, (int)data);
+			LOG_WARN("Checksum Error %x vs %x", (int)g_rx_checksum, (int)data);
 			RLM3_GPS_ErrorCallback(RLM3_GPS_ERROR_CHECKSUM_FAIL);
 			g_rx_message = NULL;
 		}
@@ -320,21 +320,20 @@ extern void RLM3_UART2_ReceiveCallback(uint8_t data)
 				// The complete message was received.  Pass it along to the application.
 				g_server_cursor = g_server_next;
 				RLM3_GiveFromISR(g_client_task);
-
 			}
 			next_state = STATE_IDLE;
 		}
 		break;
 
 	default:
-		LOG_ERROR("RX STATE %d", g_rx_state);
+		LOG_WARN("RX STATE %d", g_rx_state);
 		RLM3_GPS_ErrorCallback(RLM3_GPS_ERROR_INTERNAL);
 		next_state = STATE_LOST_A;
 	}
 
 	if (next_state == STATE_LOST)
 	{
-		LOG_ERROR("RX LOST %d %x", g_rx_state, data);
+		LOG_WARN("RX LOST %d %x", g_rx_state, data);
 		RLM3_GPS_ErrorCallback(RLM3_GPS_ERROR_PROTOCOL_FAIL);
 	}
 	g_rx_state = next_state;
@@ -406,7 +405,7 @@ extern bool RLM3_UART2_TransmitCallback(uint8_t* data_to_send)
 		return true;
 
 	default:
-		LOG_ERROR("TX STATE %d", g_tx_state);
+		LOG_WARN("TX STATE %d", g_tx_state);
 		RLM3_GPS_ErrorCallback(RLM3_GPS_ERROR_INTERNAL);
 		g_tx_state = STATE_IDLE;
 		return false;
@@ -415,7 +414,8 @@ extern bool RLM3_UART2_TransmitCallback(uint8_t* data_to_send)
 
 extern void RLM3_UART2_ErrorCallback(uint32_t status_flags)
 {
-	LOG_ERROR("UART ERROR %x", (unsigned int)status_flags);
+	LOG_WARN("UART ERROR %x", (unsigned int)status_flags);
+	g_rx_state = STATE_LOST;
 	RLM3_GPS_ErrorCallback(RLM3_GPS_ERROR_CHANNEL_FAIL);
 }
 
