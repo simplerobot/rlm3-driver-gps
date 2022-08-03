@@ -426,7 +426,6 @@ extern void RLM3_EXTI12_Callback()
 
 extern __attribute((weak)) void RLM3_GPS_PulseCallback()
 {
-
 }
 
 extern __attribute((weak)) void RLM3_GPS_ErrorCallback(RLM3_GPS_Error error)

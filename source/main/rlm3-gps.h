@@ -41,10 +41,6 @@ extern void RLM3_GPS_ErrorCallback(RLM3_GPS_Error error);
 
 
 
-
-uint16_t GPS_To_Host_U16(uint16_t value);
-
-
 static const uint8_t RLM3_GPS_MESSAGE_TYPE_01_SYSTEM_RESTART                                = 0x01;
 static const uint8_t RLM3_GPS_MESSAGE_TYPE_02_QUERY_SOFTWARE_VERSION                        = 0x02;
 static const uint8_t RLM3_GPS_MESSAGE_TYPE_03_QUERY_SOFTWARE_CRC                            = 0x03;
@@ -76,6 +72,7 @@ static const uint8_t RLM3_GPS_MESSAGE_TYPE_E0_GPS_SUBFRAME                      
 static const uint8_t RLM3_GPS_MESSAGE_TYPE_E1_GLONASS_STRING_BUFFER                         = 0xE1;
 static const uint8_t RLM3_GPS_MESSAGE_TYPE_E2_BEIDOU2_D1_SUBFRAME_BUFFER                    = 0xE2;
 static const uint8_t RLM3_GPS_MESSAGE_TYPE_E3_BEIDOU2_D2_SUBFRAME_BUFFER                    = 0xE3;
+static const uint8_t RLM3_GPS_MESSAGE_TYPE_E5_EXTENDED_RAW_MEASUREMENT_DATA                 = 0xE5;
 
 
 typedef struct __attribute__((__packed__))
@@ -170,8 +167,8 @@ typedef struct __attribute__((__packed__))
 	uint8_t sv_ch_status_enabling; // 0 = Disable, 1 = Enable
 	uint8_t rcv_state_enabling; // 0 = Disable, 1 = Enable
 	uint8_t subframe_enabling; // Bit 0 = GPS, Bit 1 = GLONASS, Bit 2 = Galileo, Bit 3 = Beidou
+	uint8_t extended_raw_measurement_enabling; // 0 = Disable, 1 = Enable
 	uint8_t attributes; // 0 = Update to SRAM, 1 = Update to SRAM and FLASH
-	uint8_t reserved; // What is this?  Must be zero?  Is this attributes? This does not match the spec.
 } RLM3_GPS_MESSAGE_1E_CONFIGURE_BINARY_MEASUREMENT_DATA_OUTPUT;
 
 typedef struct __attribute__((__packed__))
@@ -260,6 +257,7 @@ typedef struct __attribute__((__packed__))
 	uint8_t sv_ch_status_enabling; // 0 = Disable, 1 = Enable
 	uint8_t rcv_state_enabling; // 0 = Disable, 1 = Enable
 	uint8_t subframe_enabling; // Bit 0 = GPS, Bit 1 = GLONASS, Bit 2 = Galileo, Bit 3 = Beidou
+	uint8_t extended_raw_measurement_enabling; // 0 = Disable, 1 = Enable
 } RLM3_GPS_MESSAGE_89_BINARY_MEASUREMENT_DATA_OUTPUT_STATUS;
 
 typedef struct __attribute__((__packed__))
@@ -383,6 +381,35 @@ typedef struct __attribute__((__packed__))
 	uint8_t sfid; // Sub-frame ID
 	uint8_t data[28]; // Subframe data.
 } RLM3_GPS_MESSAGE_E3_BEIDOU2_D2_SUBFRAME_BUFFER;
+
+typedef struct __attribute__((__packed__))
+{
+	uint16_t payload_length;
+	uint8_t message_type;
+	uint8_t version; // Version of Extended Raw Measurement
+	uint8_t iod; // Issue of Data
+	uint16_t receiver_wn; // Receiver Week Number
+	uint32_t receiver_tow; // Receiver Time of Week
+	uint16_t measurement_period; // Measurement Period
+	uint8_t measurement_indicator; // Bit 0 = Triggered by Geotagging, Bit 1 = Clock adjust -1ms, Bit 2 = Clock adjust 1ms
+	uint8_t reserved;
+	uint8_t nmeas; // Number of measurements
+	struct __attribute__((__packed__))
+	{
+		uint8_t gnss_signal; // 4 bit system (0 = GPS, 1 = SBAS, 2 = GLONASS, 3 = Galileo, 4 = QZSS, 5 = BeiDou, 6 = IRNSS), 4 bit signal (GPS: 0 = L1 C/A, 1 = L1C, 2 = L2C, 4 = L5, SBAS: 0 = L1, ...)
+		uint8_t svid; // PRN for GPS satellites; Slot + 64 for GLONASS satellites; Slot + 200 for Beidou2 satellites
+		uint8_t lock_time_indicator; // Signal lock time: (2 ^ (x)) / 20 <= t < (2 ^ (x + 1)) / 20)
+		uint8_t cn0; // Satellite CNR (dBHz)
+		double pseudo_range; // Satellite pseudo-range (meters)
+		double accumulated_carrier_cycles; // Accumulated carrier phase measurement (L1 Cycles)
+		float doppler_frequency; // Satellite doppler frequency approaching satellite has positive frequency. (Hz)
+		uint8_t pseudo_range_stdev;
+		uint8_t accumulated_carrier_cycles_stdev;
+		uint8_t doppler_stdev;
+		uint16_t channel_indicator; // Bit 0 = pseudo-range available, Bit 1 = Doppler available, Bit 2 = Carrier phase available, Bit 3 = cycle slip possible, Bit 4 = coherent integration time exceeds 10ms, Bit 5 = Unknown half-cycle ambiguity
+		uint16_t reserved2;
+	} channels[1];
+} RLM3_GPS_MESSAGE_E5_EXTENDED_RAW_MEASUREMENT_DATA;
 
 
 #ifdef __cplusplus

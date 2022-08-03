@@ -390,7 +390,7 @@ TEST_CASE(RLM3_GPS_ParseMessage10)
 
 TEST_CASE(RLM3_GPS_ParseMessage1E)
 {
-	uint8_t raw_message[] = { 0xA0, 0xA1, 0x00, 0x09, 0x1E, 0x00, 0x01, 0x01, 0x01, 0x00, 0x01, 0x01, 0x00, 0x1F, 0x0D, 0x0A };
+	uint8_t raw_message[] = { 0xA0, 0xA1, 0x00, 0x09, 0x1E, 0x00, 0x00, 0x00, 0x01, 0x01, 0x03, 0x01, 0x01, 0x1D, 0x0D, 0x0A };
 	SIM_RLM3_UART2_ReceiveRaw(raw_message, sizeof(raw_message));
 
 	RLM3_GPS_Init();
@@ -401,13 +401,13 @@ TEST_CASE(RLM3_GPS_ParseMessage1E)
 	ASSERT(message->payload_length == 9);
 	ASSERT(message->message_type == RLM3_GPS_MESSAGE_TYPE_1E_CONFIGURE_BINARY_MEASUREMENT_DATA_OUTPUT);
 	ASSERT(message->output_rate == 0x00);
-	ASSERT(message->meas_time_enabling == 0x01);
-	ASSERT(message->raw_meas_enabling == 0x01);
+	ASSERT(message->meas_time_enabling == 0x00);
+	ASSERT(message->raw_meas_enabling == 0x00);
 	ASSERT(message->sv_ch_status_enabling == 0x01);
-	ASSERT(message->rcv_state_enabling == 0x00);
-	ASSERT(message->subframe_enabling == 0x01);
+	ASSERT(message->rcv_state_enabling == 0x01);
+	ASSERT(message->subframe_enabling == 0x03);
+	ASSERT(message->extended_raw_measurement_enabling == 0x01);
 	ASSERT(message->attributes == 0x01);
-	ASSERT(message->reserved == 0);
 }
 
 TEST_CASE(RLM3_GPS_ParseMessage1F)
@@ -586,7 +586,7 @@ TEST_CASE(RLM3_GPS_ParseMessage86)
 
 TEST_CASE(RLM3_GPS_ParseMessage89)
 {
-	uint8_t raw_message[] = { 0xA0, 0xA1, 0x00, 0x07, 0x89, 0x00, 0x01, 0x01, 0x01, 0x00, 0x01, 0x89, 0x0D, 0x0A };
+	uint8_t raw_message[] = { 0xA0, 0xA1, 0x00, 0x08, 0x89, 0x00, 0x00, 0x00, 0x01, 0x01, 0x03, 0x01, 0x8B, 0x0D, 0x0A };
 	SIM_RLM3_UART2_ReceiveRaw(raw_message, sizeof(raw_message));
 
 	RLM3_GPS_Init();
@@ -594,14 +594,15 @@ TEST_CASE(RLM3_GPS_ParseMessage89)
 
 	ASSERT(message != nullptr);
 	ASSERT(message->payload_length == RLM3_GPS_GET_MESSAGE_PAYLOAD_SIZE(*message));
-	ASSERT(message->payload_length == 7);
+	ASSERT(message->payload_length == 8);
 	ASSERT(message->message_type == RLM3_GPS_MESSAGE_TYPE_89_BINARY_MEASUREMENT_DATA_OUTPUT_STATUS);
 	ASSERT(message->output_rate == 0x00);
-	ASSERT(message->meas_time_enabling == 0x01);
-	ASSERT(message->raw_meas_enabling == 0x01);
+	ASSERT(message->meas_time_enabling == 0x00);
+	ASSERT(message->raw_meas_enabling == 0x00);
 	ASSERT(message->sv_ch_status_enabling == 0x01);
-	ASSERT(message->rcv_state_enabling == 0x00);
-	ASSERT(message->subframe_enabling == 0x01);
+	ASSERT(message->rcv_state_enabling == 0x01);
+	ASSERT(message->subframe_enabling == 0x03);
+	ASSERT(message->extended_raw_measurement_enabling == 0x01);
 }
 
 TEST_CASE(RLM3_GPS_ParseMessage90)

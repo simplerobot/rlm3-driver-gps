@@ -70,16 +70,17 @@ TEST_CASE(RLM3_GPS_Run_HappyCase)
 	RLM3_GPS_SET_MESSAGE_PAYLOAD_SIZE(message1E);
 	message1E.message_type = RLM3_GPS_MESSAGE_TYPE_1E_CONFIGURE_BINARY_MEASUREMENT_DATA_OUTPUT;
 	message1E.output_rate = 0; // 1Hz
-	message1E.meas_time_enabling = 1; // Enable
-	message1E.raw_meas_enabling = 1; // Enable
+	message1E.meas_time_enabling = 0; // 1; // Enable
+	message1E.raw_meas_enabling = 0; // 1; // Enable
 	message1E.sv_ch_status_enabling = 1; // Enable
-	message1E.rcv_state_enabling = 1; // Disable
-	message1E.subframe_enabling = 0x00; // None
+	message1E.rcv_state_enabling = 1; // Enable
+	message1E.subframe_enabling = 0x01; // GPS
+	message1E.extended_raw_measurement_enabling = 1; // Enable
 	message1E.attributes = 0; // Update to SRAM
-	message1E.reserved = 0; // Reserved?
 	ASSERT(SendAndVerify((const RLM3_GPS_MESSAGE*)&message1E, 1000));
 
-	ASSERT(SendAndVerify((const RLM3_GPS_MESSAGE*)&message1F, 1000));
+	// TODO: Why are we not getting an ACK back?
+	ASSERT(SendAndVerify((const RLM3_GPS_MESSAGE*)&message1F, 1000000));
 
 	bool had_measurement_time = false;
 	bool had_raw_measurement = false;
@@ -169,8 +170,9 @@ static void Log(const RLM3_GPS_MESSAGE* message)
 		const char* sv_ch_status_enabling = k_enables[std::min<uint8_t>(2, m->sv_ch_status_enabling)];
 		const char* rcv_state_enabling = k_enables[std::min<uint8_t>(2, m->rcv_state_enabling)];
 		const char* subframe_enabling = k_subframes[std::min<uint8_t>(2, m->subframe_enabling)];
+		const char* extended_raw_measurement_enabling = k_enables[std::min<uint8_t>(2, m->extended_raw_measurement_enabling)];
 		const char* attributes = k_attributes[std::min<uint8_t>(2, m->attributes)];
-		LOG_ALWAYS("MESSAGE CONFIGURE_BINARY_MEASUREMENT_DATA_OUTPUT { TYPE: 1E, PAYLOAD_LENGTH: %d, RATE: %s, MEASURE: %s, RAW: %s, SV: %s, RCV: %s, SUBFRAMES: %s, ATTRIBUTES: %s, RESERVED: %d }", m->payload_length, rate, meas_time_enabling, raw_meas_enabling, sv_ch_status_enabling, rcv_state_enabling, subframe_enabling, attributes, m->reserved);
+		LOG_ALWAYS("MESSAGE CONFIGURE_BINARY_MEASUREMENT_DATA_OUTPUT { TYPE: 1E, PAYLOAD_LENGTH: %d, RATE: %s, MEASURE: %s, RAW: %s, SV: %s, RCV: %s, SUBFRAMES: %s, ERAW: %s, ATTRIBUTES: %s }", m->payload_length, rate, meas_time_enabling, raw_meas_enabling, sv_ch_status_enabling, rcv_state_enabling, subframe_enabling, extended_raw_measurement_enabling, attributes);
 	}
 	break;
 	case RLM3_GPS_MESSAGE_TYPE_1F_QUERY_BINARY_MEASUREMENT_DATA_OUTPUT_STATUS: { auto m = (const RLM3_GPS_MESSAGE_1F_QUERY_BINARY_MEASUREMENT_DATA_OUTPUT_STATUS*)message; LOG_ALWAYS("MESSAGE QUERY_BINARY_MEASUREMENT_DATA_OUTPUT_STATUS { TYPE: 1F, PAYLOAD_LENGTH: %d }", m->payload_length); } break;
@@ -265,6 +267,17 @@ static void Log(const RLM3_GPS_MESSAGE* message)
 	case RLM3_GPS_MESSAGE_TYPE_E1_GLONASS_STRING_BUFFER: { auto m = (const RLM3_GPS_MESSAGE_E1_GLONASS_STRING_BUFFER*)message; LOG_ALWAYS("MESSAGE GLONASS_STRING_BUFFER { TYPE: E1, PAYLOAD_LENGTH: %d }", m->payload_length); } break;
 	case RLM3_GPS_MESSAGE_TYPE_E2_BEIDOU2_D1_SUBFRAME_BUFFER: { auto m = (const RLM3_GPS_MESSAGE_E2_BEIDOU2_D1_SUBFRAME_BUFFER*)message; LOG_ALWAYS("MESSAGE BEIDOU2_D1_SUBFRAME_BUFFER { TYPE: E2, PAYLOAD_LENGTH: %d }", m->payload_length); } break;
 	case RLM3_GPS_MESSAGE_TYPE_E3_BEIDOU2_D2_SUBFRAME_BUFFER: { auto m = (const RLM3_GPS_MESSAGE_E3_BEIDOU2_D2_SUBFRAME_BUFFER*)message; LOG_ALWAYS("MESSAGE BEIDOU2_D2_SUBFRAME_BUFFER { TYPE: E3, PAYLOAD_LENGTH: %d }", m->payload_length); } break;
+	case RLM3_GPS_MESSAGE_TYPE_E5_EXTENDED_RAW_MEASUREMENT_DATA:
+	{
+		auto m = (const RLM3_GPS_MESSAGE_E5_EXTENDED_RAW_MEASUREMENT_DATA*)message;
+		LOG_ALWAYS("MESSAGE EXTENDED_RAW { TYPE: E5, PAYLOAD_LENGTH: %d, VERSION: %d, IOD: %d, WEEK: %d, TOW: %d, PERIOD: %d, IND: %x, RESERVED: %d, NMEAS: %d }", m->payload_length, m->version, m->iod, ntoh(m->receiver_wn), (int)ntoh(m->receiver_tow), ntoh(m->measurement_period), m->measurement_indicator, m->reserved, m->nmeas);
+		for (size_t i = 0; i < m->nmeas; i++)
+		{
+			auto r = m->channels[i];
+			LOG_ALWAYS("- { GNSS_SIGNAL: %x, SVID: %d, LOCK_TIME: %d, CN0: %d, PR: %f, ACC: %f, DOP: %f, STDEV: %d %d %d, IND: %x }", r.gnss_signal, r.svid, r.lock_time_indicator, r.cn0, ntoh(r.pseudo_range), ntoh(r.accumulated_carrier_cycles), ntoh(r.doppler_frequency), r.pseudo_range_stdev, r.accumulated_carrier_cycles_stdev, r.doppler_stdev, ntoh(r.channel_indicator));
+		}
+	}
+	break;
 	default:
 		LOG_ALWAYS("MESSAGE UNKNOWN { TYPE: %02x, PAYLOAD_LENGTH: %d }", message->message_type, message->payload_length);
 		break;
