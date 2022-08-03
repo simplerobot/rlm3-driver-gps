@@ -40,6 +40,11 @@ extern void RLM3_GPS_PulseCallback();
 extern void RLM3_GPS_ErrorCallback(RLM3_GPS_Error error);
 
 
+
+
+uint16_t GPS_To_Host_U16(uint16_t value);
+
+
 static const uint8_t RLM3_GPS_MESSAGE_TYPE_01_SYSTEM_RESTART                                = 0x01;
 static const uint8_t RLM3_GPS_MESSAGE_TYPE_02_QUERY_SOFTWARE_VERSION                        = 0x02;
 static const uint8_t RLM3_GPS_MESSAGE_TYPE_03_QUERY_SOFTWARE_CRC                            = 0x03;
@@ -164,8 +169,9 @@ typedef struct __attribute__((__packed__))
 	uint8_t raw_meas_enabling; // 0 = Disable, 1 = Enable
 	uint8_t sv_ch_status_enabling; // 0 = Disable, 1 = Enable
 	uint8_t rcv_state_enabling; // 0 = Disable, 1 = Enable
-	uint8_t constellations; // Bit 0 = GPS, Bit 1 = GLONASS, Bit 2 = Galileo, Bit 3 = Beidou
+	uint8_t subframe_enabling; // Bit 0 = GPS, Bit 1 = GLONASS, Bit 2 = Galileo, Bit 3 = Beidou
 	uint8_t attributes; // 0 = Update to SRAM, 1 = Update to SRAM and FLASH
+	uint8_t reserved; // What is this?  Must be zero?  Is this attributes? This does not match the spec.
 } RLM3_GPS_MESSAGE_1E_CONFIGURE_BINARY_MEASUREMENT_DATA_OUTPUT;
 
 typedef struct __attribute__((__packed__))
@@ -253,7 +259,7 @@ typedef struct __attribute__((__packed__))
 	uint8_t raw_meas_enabling; // 0 = Disable, 1 = Enable
 	uint8_t sv_ch_status_enabling; // 0 = Disable, 1 = Enable
 	uint8_t rcv_state_enabling; // 0 = Disable, 1 = Enable
-	uint8_t constellations; // Bit 0 = GPS, Bit 1 = GLONASS, Bit 2 = Galileo, Bit 3 = Beidou
+	uint8_t subframe_enabling; // Bit 0 = GPS, Bit 1 = GLONASS, Bit 2 = Galileo, Bit 3 = Beidou
 } RLM3_GPS_MESSAGE_89_BINARY_MEASUREMENT_DATA_OUTPUT_STATUS;
 
 typedef struct __attribute__((__packed__))
@@ -314,6 +320,7 @@ typedef struct __attribute__((__packed__))
 		uint8_t ura; // URA index for GPS satellites, Ft parameter for GLONASS satellites.  255 indicates value is not available.
 		uint8_t cn0; // Satellite CNR (dBHz)
 		int16_t elevation; // SV Elevation (degrees)
+		int16_t azimoth; // SV Azimuth (degrees)
 		uint8_t channel_status_indicator; // Bit 0 = Pull-in stage done, Bit 1 = synchronization done, Bit 2 = frame synchronization done, Bit 3 = Ephemeris received, Bit 4 = Used in normal fix, Bit 5 = Used in differential fix mode
 	} channels[1];
 } RLM3_GPS_MESSAGE_DE_SV_CH_STATUS;

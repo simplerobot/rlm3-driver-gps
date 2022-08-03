@@ -4,8 +4,8 @@
 #include "rlm3-uart.h"
 #include "rlm3-task.h"
 #include "rlm3-sim.hpp"
+#include "rlm3-bytes.h"
 #include <vector>
-#include <arpa/inet.h>
 
 
 static size_t g_pulse_count = 0;
@@ -30,16 +30,36 @@ TEST_CASE(RLM3_GPS_Init_HappyCase)
 
 	ASSERT(RLM3_GPS_IsInit());
 	ASSERT(SIM_RLM3_UART2_GetBaudrate() == 115200);
+
+	ASSERT(SIM_GPIO_IsClockEnabled(GPIOB));
+	ASSERT(SIM_GPIO_IsClockEnabled(GPIOG));
+
+	ASSERT(SIM_GPIO_GetMode(GPIOB, GPIO_PIN_12) == GPIO_MODE_OUTPUT_PP);
+	ASSERT(SIM_GPIO_GetPull(GPIOB, GPIO_PIN_12) == GPIO_NOPULL);
+
 	ASSERT(SIM_GPIO_GetMode(GPIOG, GPIO_PIN_12) == GPIO_MODE_IT_RISING);
 	ASSERT(SIM_GPIO_GetPull(GPIOG, GPIO_PIN_12) == GPIO_PULLUP);
+
+	ASSERT(RLM3_GetCurrentTime() >= 1000);
 }
 
 TEST_CASE(RLM3_GPS_DeInit_HappyCase)
 {
 	RLM3_GPS_Init();
+
 	ASSERT(RLM3_GPS_IsInit());
 	RLM3_GPS_Deinit();
+
 	ASSERT(!RLM3_GPS_IsInit());
+	ASSERT(!RLM3_UART2_IsInit());
+
+	ASSERT(SIM_RLM3_UART2_GetBaudrate() == 115200);
+
+	ASSERT(SIM_GPIO_IsClockEnabled(GPIOB));
+	ASSERT(SIM_GPIO_IsClockEnabled(GPIOG));
+
+	ASSERT(SIM_GPIO_GetMode(GPIOB, GPIO_PIN_12) == GPIO_MODE_DISABLED);
+	ASSERT(SIM_GPIO_GetMode(GPIOG, GPIO_PIN_12) == GPIO_MODE_DISABLED);
 }
 
 TEST_CASE(RLM3_GPS_Pulse_HappyCase)
@@ -204,11 +224,12 @@ TEST_CASE(RLM3_GPS_ERROR_BufferFull)
 	SIM_AddDelay(1234);
 	SIM_RLM3_UART2_ReceiveRaw(simple_msg, sizeof(simple_msg));
 	RLM3_GPS_Init();
+	RLM3_Time start_time = RLM3_GetCurrentTime();
 
 	while (g_errors.empty())
 		RLM3_Take();
 
-	ASSERT(RLM3_GetCurrentTime() == 1234);
+	ASSERT(RLM3_GetCurrentTime() == 1234 + start_time);
 	ASSERT(g_errors.size() == 1);
 	ASSERT(g_errors[0] == RLM3_GPS_ERROR_BUFFER_FULL);
 }
@@ -226,15 +247,15 @@ TEST_CASE(RLM3_GPS_ParseMessage01)
 	ASSERT(message->payload_length == 15);
 	ASSERT(message->message_type == RLM3_GPS_MESSAGE_TYPE_01_SYSTEM_RESTART);
 	ASSERT(message->start_mode == 1);
-	ASSERT(message->utc_year == ::htons(0xD607));
+	ASSERT(message->utc_year == ::hton_u16(0xD607));
 	ASSERT(message->utc_month == 0x0C);
 	ASSERT(message->utc_day == 0x12);
 	ASSERT(message->utc_hour == 0x08);
 	ASSERT(message->utc_minute == 0x32);
 	ASSERT(message->utc_second == 0x29);
-	ASSERT(message->latitude == ::htons(0xC409));
-	ASSERT(message->longitude == ::htons(0x7030));
-	ASSERT(message->altitude == ::htons(0x6400));
+	ASSERT(message->latitude == ::hton_u16(0xC409));
+	ASSERT(message->longitude == ::hton_u16(0x7030));
+	ASSERT(message->altitude == ::hton_u16(0x6400));
 }
 
 TEST_CASE(RLM3_GPS_ParseMessage02)
@@ -369,7 +390,7 @@ TEST_CASE(RLM3_GPS_ParseMessage10)
 
 TEST_CASE(RLM3_GPS_ParseMessage1E)
 {
-	uint8_t raw_message[] = { 0xA0, 0xA1, 0x00, 0x08, 0x1E, 0x00, 0x01, 0x01, 0x01, 0x00, 0x01, 0x01, 0x1F, 0x0D, 0x0A };
+	uint8_t raw_message[] = { 0xA0, 0xA1, 0x00, 0x09, 0x1E, 0x00, 0x01, 0x01, 0x01, 0x00, 0x01, 0x01, 0x00, 0x1F, 0x0D, 0x0A };
 	SIM_RLM3_UART2_ReceiveRaw(raw_message, sizeof(raw_message));
 
 	RLM3_GPS_Init();
@@ -377,15 +398,16 @@ TEST_CASE(RLM3_GPS_ParseMessage1E)
 
 	ASSERT(message != nullptr);
 	ASSERT(message->payload_length == RLM3_GPS_GET_MESSAGE_PAYLOAD_SIZE(*message));
-	ASSERT(message->payload_length == 8);
+	ASSERT(message->payload_length == 9);
 	ASSERT(message->message_type == RLM3_GPS_MESSAGE_TYPE_1E_CONFIGURE_BINARY_MEASUREMENT_DATA_OUTPUT);
 	ASSERT(message->output_rate == 0x00);
 	ASSERT(message->meas_time_enabling == 0x01);
 	ASSERT(message->raw_meas_enabling == 0x01);
 	ASSERT(message->sv_ch_status_enabling == 0x01);
 	ASSERT(message->rcv_state_enabling == 0x00);
-	ASSERT(message->constellations == 0x01);
+	ASSERT(message->subframe_enabling == 0x01);
 	ASSERT(message->attributes == 0x01);
+	ASSERT(message->reserved == 0);
 }
 
 TEST_CASE(RLM3_GPS_ParseMessage1F)
@@ -429,7 +451,7 @@ TEST_CASE(RLM3_GPS_ParseMessage31)
 	ASSERT(message->payload_length == RLM3_GPS_GET_MESSAGE_PAYLOAD_SIZE(*message));
 	ASSERT(message->payload_length == 87);
 	ASSERT(message->message_type == RLM3_GPS_MESSAGE_TYPE_31_SET_EPHEMERIS);
-	ASSERT(message->sv_id == ::ntohs(0x0002));
+	ASSERT(message->sv_id == ::ntoh_u16(0x0002));
 }
 
 TEST_CASE(RLM3_GPS_ParseMessage5B)
@@ -496,9 +518,9 @@ TEST_CASE(RLM3_GPS_ParseMessage80)
 	ASSERT(message->payload_length == 14);
 	ASSERT(message->message_type == RLM3_GPS_MESSAGE_TYPE_80_SOFTWARE_VERSION);
 	ASSERT(message->software_type == 0x01);
-	ASSERT(message->kernel_version == ::ntohl(0x00010101));
-	ASSERT(message->odm_version == ::ntohl(0x0001030E));
-	ASSERT(message->revision == ::ntohl(0x00070112));
+	ASSERT(message->kernel_version == ::ntoh_u32(0x00010101));
+	ASSERT(message->odm_version == ::ntoh_u32(0x0001030E));
+	ASSERT(message->revision == ::ntoh_u32(0x00070112));
 }
 
 TEST_CASE(RLM3_GPS_ParseMessage81)
@@ -514,7 +536,7 @@ TEST_CASE(RLM3_GPS_ParseMessage81)
 	ASSERT(message->payload_length == 4);
 	ASSERT(message->message_type == RLM3_GPS_MESSAGE_TYPE_81_SOFTWARE_CRC);
 	ASSERT(message->software_type == 0x01);
-	ASSERT(message->crc == ::ntohs(0x9876));
+	ASSERT(message->crc == ::ntoh_u16(0x9876));
 }
 
 TEST_CASE(RLM3_GPS_ParseMessage83)
@@ -579,7 +601,7 @@ TEST_CASE(RLM3_GPS_ParseMessage89)
 	ASSERT(message->raw_meas_enabling == 0x01);
 	ASSERT(message->sv_ch_status_enabling == 0x01);
 	ASSERT(message->rcv_state_enabling == 0x00);
-	ASSERT(message->constellations == 0x01);
+	ASSERT(message->subframe_enabling == 0x01);
 }
 
 TEST_CASE(RLM3_GPS_ParseMessage90)
@@ -630,7 +652,7 @@ TEST_CASE(RLM3_GPS_ParseMessageB1)
 	ASSERT(message->payload_length == RLM3_GPS_GET_MESSAGE_PAYLOAD_SIZE(*message));
 	ASSERT(message->payload_length == 87);
 	ASSERT(message->message_type == RLM3_GPS_MESSAGE_TYPE_B1_GPS_EPHEMERIS_DATA);
-	ASSERT(message->sv_id == ::ntohs(0x02));
+	ASSERT(message->sv_id == ::ntoh_u16(0x02));
 }
 
 TEST_CASE(RLM3_GPS_ParseMessageDC)
@@ -646,27 +668,19 @@ TEST_CASE(RLM3_GPS_ParseMessageDC)
 	ASSERT(message->payload_length == 10);
 	ASSERT(message->message_type == RLM3_GPS_MESSAGE_TYPE_DC_MEASUREMENT_TIME);
 	ASSERT(message->iod == 0x3D);
-	ASSERT(message->receiver_wn == ::ntohs(0x06ED));
-	ASSERT(message->receiver_tow == ::ntohl(0x0B0CBC40));
-	ASSERT(message->measurement_period == ::ntohs(0x03E8));
+	ASSERT(message->receiver_wn == ::ntoh_u16(0x06ED));
+	ASSERT(message->receiver_tow == ::ntoh_u32(0x0B0CBC40));
+	ASSERT(message->measurement_period == ::ntoh_u16(0x03E8));
 }
 
-static float ntohf(uint32_t x)
+static float ntoh_f32_u(uint32_t x)
 {
-	uint32_t y = ::ntohl(x);
-	return (float&)y;
+	return ntoh_f32(*(float*)&x);
 }
 
-static double ntohd(uint64_t x)
+static double ntoh_f64_u(uint64_t x)
 {
-#if __BIG_ENDIAN__
-	return (double&)x;
-#else
-	uint64_t high = ::htonl((x >> 0) & 0xFFFFFFFF);
-	uint64_t low = ::htonl((x >> 32) & 0xFFFFFFFF);
-	uint64_t y = (high << 32) | (low << 0);
-	return (double&)y;
-#endif
+	return ntoh_f64(*(double*)&x);
 }
 
 TEST_CASE(RLM3_GPS_ParseMessageDD)
@@ -684,9 +698,9 @@ TEST_CASE(RLM3_GPS_ParseMessageDD)
 	ASSERT(message->nmeas == 0x0F);
 	ASSERT(message->channels[0].svid == 0x02);
 	ASSERT(message->channels[0].cn0 == 0x2B);
-	ASSERT(message->channels[0].pseudo_range == ::ntohd(0x417442DB7655FA29));
-	ASSERT(message->channels[0].accumulated_carrier_cycles == ::ntohd(0xC0E2E402215A0000));
-	ASSERT(message->channels[0].doppler_frequency == ::ntohf(0x44208000));
+	ASSERT(message->channels[0].pseudo_range == ::ntoh_f64_u(0x417442DB7655FA29));
+	ASSERT(message->channels[0].accumulated_carrier_cycles == ::ntoh_f64_u(0xC0E2E402215A0000));
+	ASSERT(message->channels[0].doppler_frequency == ::ntoh_f32_u(0x44208000));
 	ASSERT(message->channels[0].measurement_indicator == 0x07);
 }
 
@@ -708,8 +722,9 @@ TEST_CASE(RLM3_GPS_ParseMessageDE)
 	ASSERT(message->channels[0].sv_status_indicator == 0x07);
 	ASSERT(message->channels[0].ura == 0x01);
 	ASSERT(message->channels[0].cn0 == 0x2B);
-	ASSERT(message->channels[0].elevation == ::ntohs(0x003E));
-	ASSERT(message->channels[0].channel_status_indicator == 0x00);
+	ASSERT(message->channels[0].elevation == ::ntoh_u16(0x003E));
+	ASSERT(message->channels[0].azimoth == ::ntoh_u16(0x10));
+	ASSERT(message->channels[0].channel_status_indicator == 0x1F);
 }
 
 TEST_CASE(RLM3_GPS_ParseMessageDF)
@@ -726,21 +741,21 @@ TEST_CASE(RLM3_GPS_ParseMessageDF)
 	ASSERT(message->message_type == RLM3_GPS_MESSAGE_TYPE_DF_RECEIVER_STATE);
 	ASSERT(message->iod == 0x92);
 	ASSERT(message->navigation_state == 0x03);
-	ASSERT(message->wn == ::ntohs(0x06ED));
-	ASSERT(message->tow == ::ntohd(0x4107DBE7FD763B21));
-	ASSERT(message->ecef_pos_x == ::ntohd(0xC146C6042F62BFD8));
-	ASSERT(message->ecef_pos_y == ::ntohd(0x4152F1B64B17F7CC));
-	ASSERT(message->ecef_pos_z == ::ntohd(0x41444679B87ADB12));
-	ASSERT(message->ecef_vel_x == ::ntohf(0x3C8AAAD4));
-	ASSERT(message->ecef_vel_y == ::ntohf(0xBC1A6EF0));
-	ASSERT(message->ecef_vel_z == ::ntohf(0xBBC567D2));
-	ASSERT(message->clock_bias == ::ntohd(0x4116AD5E6D3F7C78));
-	ASSERT(message->clock_drift == ::ntohf(0x428FD91E));
-	ASSERT(message->gdop == ::ntohf(0x405D7C6B));
-	ASSERT(message->pdop == ::ntohf(0x404B07FB));
-	ASSERT(message->hdop == ::ntohf(0x3F7C51AD));
-	ASSERT(message->vdop == ::ntohf(0x4040FBC2));
-	ASSERT(message->tdop == ::ntohf(0x3FB10630));
+	ASSERT(message->wn == ::ntoh_u16(0x06ED));
+	ASSERT(message->tow == ::ntoh_f64_u(0x4107DBE7FD763B21));
+	ASSERT(message->ecef_pos_x == ::ntoh_f64_u(0xC146C6042F62BFD8));
+	ASSERT(message->ecef_pos_y == ::ntoh_f64_u(0x4152F1B64B17F7CC));
+	ASSERT(message->ecef_pos_z == ::ntoh_f64_u(0x41444679B87ADB12));
+	ASSERT(message->ecef_vel_x == ::ntoh_f32_u(0x3C8AAAD4));
+	ASSERT(message->ecef_vel_y == ::ntoh_f32_u(0xBC1A6EF0));
+	ASSERT(message->ecef_vel_z == ::ntoh_f32_u(0xBBC567D2));
+	ASSERT(message->clock_bias == ::ntoh_f64_u(0x4116AD5E6D3F7C78));
+	ASSERT(message->clock_drift == ::ntoh_f32_u(0x428FD91E));
+	ASSERT(message->gdop == ::ntoh_f32_u(0x405D7C6B));
+	ASSERT(message->pdop == ::ntoh_f32_u(0x404B07FB));
+	ASSERT(message->hdop == ::ntoh_f32_u(0x3F7C51AD));
+	ASSERT(message->vdop == ::ntoh_f32_u(0x4040FBC2));
+	ASSERT(message->tdop == ::ntoh_f32_u(0x3FB10630));
 }
 
 TEST_CASE(RLM3_GPS_ParseMessageE0)
@@ -824,4 +839,3 @@ TEST_CASE(RLM3_GPS_ParseMessageE3)
 	for (size_t i = 0; i < 28; i++)
 		ASSERT(message->data[i] == raw_data[i]);
 }
-

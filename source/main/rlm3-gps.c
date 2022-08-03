@@ -66,14 +66,24 @@ extern void RLM3_GPS_Init()
 	if (RLM3_UART2_IsInit())
 		RLM3_UART2_Deinit();
 
+	__HAL_RCC_GPIOB_CLK_ENABLE();
 	__HAL_RCC_GPIOG_CLK_ENABLE();
 
+	HAL_GPIO_WritePin(GPS_RESET_GPIO_Port, GPS_RESET_Pin, GPIO_PIN_RESET);
+
 	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
+
 	GPIO_InitStruct.Pin = GPS_PULSE_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
 	GPIO_InitStruct.Pull = GPIO_PULLUP;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(GPS_PULSE_GPIO_Port, &GPIO_InitStruct);
+
+	GPIO_InitStruct.Pin = GPS_RESET_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(GPS_RESET_GPIO_Port, &GPIO_InitStruct);
 
 	g_client_task = NULL;
 
@@ -89,12 +99,19 @@ extern void RLM3_GPS_Init()
 	g_rx_state = STATE_IDLE;
 	g_rx_message = NULL;
 
+	// Reset the GPS module.
+	RLM3_Delay(10);
+	HAL_GPIO_WritePin(GPS_RESET_GPIO_Port, GPS_RESET_Pin, GPIO_PIN_SET);
+	RLM3_Delay(1000);
+
+	// Start listening to the GPS module.
 	RLM3_UART2_Init(115200);
 }
 
 extern void RLM3_GPS_Deinit()
 {
 	HAL_GPIO_DeInit(GPS_PULSE_GPIO_Port, GPS_PULSE_Pin);
+	HAL_GPIO_DeInit(GPS_RESET_GPIO_Port, GPS_RESET_Pin);
 
 	RLM3_UART2_Deinit();
 }
@@ -201,8 +218,19 @@ static RLM3_GPS_MESSAGE* AllocateRxMessage(size_t payload_length)
 	return NULL;
 }
 
+static void DebugPrintHex(uint8_t data)
+{
+	static const char* g_hex_chars = "0123456789ABCDEF";
+	RLM3_DebugOutputFromISR(g_hex_chars[(data >> 4) & 0x0F]);
+	RLM3_DebugOutputFromISR(g_hex_chars[(data >> 0) & 0x0F]);
+	RLM3_DebugOutputFromISR(' ');
+}
+
 extern void RLM3_UART2_ReceiveCallback(uint8_t data)
 {
+	if (IS_LOG_TRACE())
+		DebugPrintHex(data);
+
 	State next_state = STATE_LOST;
 	switch (g_rx_state)
 	{

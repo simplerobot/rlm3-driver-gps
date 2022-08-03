@@ -3,6 +3,7 @@ GITHUB_DEPS += simplerobot/logger
 GITHUB_DEPS += simplerobot/test
 GITHUB_DEPS += simplerobot/test-stm32
 GITHUB_DEPS += simplerobot/rlm3-hardware
+GITHUB_DEPS += simplerobot/rlm3-base
 GITHUB_DEPS += simplerobot/rlm3-driver-base
 GITHUB_DEPS += simplerobot/rlm3-driver-base-sim
 GITHUB_DEPS += simplerobot/hw-test-agent
@@ -33,12 +34,12 @@ RELEASE_DIR = $(BUILD_DIR)/release
 
 LIBRARY_FILES = $(notdir $(wildcard $(MAIN_SOURCE_DIR)/*))
 
-CPU_TEST_SOURCE_DIRS = $(MAIN_SOURCE_DIR) $(CPU_TEST_SOURCE_DIR) $(PKG_LOGGER_DIR) $(PKG_TEST_DIR) $(PKG_RLM3_DRIVER_BASE_SIM_DIR) 
+CPU_TEST_SOURCE_DIRS = $(MAIN_SOURCE_DIR) $(CPU_TEST_SOURCE_DIR) $(PKG_LOGGER_DIR) $(PKG_TEST_DIR) $(PKG_RLM3_BASE_DIR) $(PKG_RLM3_DRIVER_BASE_SIM_DIR) 
 CPU_TEST_SOURCE_FILES = $(notdir $(wildcard $(CPU_TEST_SOURCE_DIRS:%=%/*.c) $(CPU_TEST_SOURCE_DIRS:%=%/*.cpp)))
 CPU_TEST_O_FILES = $(addsuffix .o,$(basename $(CPU_TEST_SOURCE_FILES)))
 CPU_INCLUDES = $(CPU_TEST_SOURCE_DIRS:%=-I%)
 
-MCU_TEST_SOURCE_DIRS = $(MAIN_SOURCE_DIR) $(MCU_TEST_SOURCE_DIR) $(PKG_RLM3_HARDWARE_DIR) $(PKG_LOGGER_DIR) $(PKG_TEST_STM32_DIR) $(PKG_RLM3_DRIVER_BASE_DIR)
+MCU_TEST_SOURCE_DIRS = $(MAIN_SOURCE_DIR) $(MCU_TEST_SOURCE_DIR) $(PKG_RLM3_HARDWARE_DIR) $(PKG_LOGGER_DIR) $(PKG_RLM3_BASE_DIR) $(PKG_TEST_STM32_DIR) $(PKG_RLM3_DRIVER_BASE_DIR)
 MCU_TEST_SOURCE_FILES = $(notdir $(wildcard $(MCU_TEST_SOURCE_DIRS:%=%/*.c) $(MCU_TEST_SOURCE_DIRS:%=%/*.cpp) $(MCU_TEST_SOURCE_DIRS:%=%/*.s)))
 MCU_TEST_O_FILES = $(addsuffix .o,$(basename $(MCU_TEST_SOURCE_FILES)))
 MCU_TEST_LD_FILE = $(wildcard $(PKG_RLM3_HARDWARE_DIR)/*.ld)
@@ -76,7 +77,7 @@ $(CPU_TEST_BUILD_DIR) :
 	mkdir -p $@
 
 test-mcu : library test-cpu $(MCU_TEST_BUILD_DIR)/test.bin $(MCU_TEST_BUILD_DIR)/test.hex
-	$(PKG_HW_TEST_AGENT_DIR)/sr-hw-test-agent --run --test-timeout=15 --system-frequency=180m --trace-frequency=2m --board RLM36 --file $(MCU_TEST_BUILD_DIR)/test.bin	
+	$(PKG_HW_TEST_AGENT_DIR)/sr-hw-test-agent --run --test-timeout=30 --trace-frequency=2m --board RLM36 --file $(MCU_TEST_BUILD_DIR)/test.bin	
 
 $(MCU_TEST_BUILD_DIR)/test.bin : $(MCU_TEST_BUILD_DIR)/test.elf
 	$(MCU_BN) $< $@
@@ -85,7 +86,7 @@ $(MCU_TEST_BUILD_DIR)/test.hex : $(MCU_TEST_BUILD_DIR)/test.elf
 	$(MCU_HX) $< $@
 
 $(MCU_TEST_BUILD_DIR)/test.elf : $(MCU_TEST_O_FILES:%=$(MCU_TEST_BUILD_DIR)/%)
-	$(MCU_CC) $(MCU_CFLAGS) $(MCU_TEST_LD_FILE:%=-T%) -Wl,--gc-sections $^ $(MCU_CLIBS) -s -o $@ -Wl,-Map=$@.map,--cref
+	$(MCU_CC) $(MCU_CFLAGS) $(MCU_TEST_LD_FILE:%=-T%) -Wl,--gc-sections $^ $(MCU_CLIBS) -o $@ -Wl,-Map=$@.map,--cref
 	$(MCU_SZ) $@
 
 $(MCU_TEST_BUILD_DIR)/%.o : %.c Makefile | $(MCU_TEST_BUILD_DIR)
